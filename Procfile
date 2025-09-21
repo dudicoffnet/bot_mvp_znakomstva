@@ -1,0 +1,1 @@
+python приложение/main.py
