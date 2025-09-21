@@ -1,21 +1,27 @@
-
-from aiogram import Bot, Dispatcher, executor, types
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import Message
 from aiogram.enums import ParseMode
-from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+import asyncio
+import os
 
-from handlers import register_handlers
+TOKEN = os.getenv("BOT_TOKEN")
+bot = Bot(token=TOKEN, default=types.DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher(storage=MemoryStorage())
 
-import logging
+class Form(StatesGroup):
+    name = State()
+    goals = State()
 
-logging.basicConfig(level=logging.INFO)
+@dp.message()
+async def start_handler(message: Message, state: FSMContext):
+    await message.answer("Привет! Как тебя зовут?")
+    await state.set_state(Form.name)
 
-bot = Bot(
-    token="YOUR_BOT_TOKEN_HERE",
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
-dp = Dispatcher(bot)
-
-register_handlers(dp)
+async def main():
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())
