@@ -1,13 +1,7 @@
-# Бот знакомств (Telegram)
-Простой, тёплый и честный бот для знакомств по интересам.
+# Бот знакомств на aiogram v2
+Честный Telegram-бот для знакомств по интересам.
 
 ## Установка
-1. Установи зависимости:
-    pip install -r requirements.txt
-
-2. Создай файл .env на основе .env.sample
-
-3. Запусти:
-    python приложение/main.py
-
-Работает на aiogram v3.
+1. pip install -r requirements.txt
+2. Создай файл .env
+3. python приложение/main.py

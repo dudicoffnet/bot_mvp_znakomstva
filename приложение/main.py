@@ -1,84 +1,78 @@
 
 import os
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.fsm.context import FSMContext
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
-from aiogram import Router
-from aiogram.enums import ParseMode
-
+from aiogram import Bot, Dispatcher, executor, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
 from dotenv import load_dotenv
+
 load_dotenv()
 
-bot = Bot(token=os.getenv("BOT_TOKEN"), parse_mode=ParseMode.HTML)
-dp = Dispatcher()
-router = Router()
-dp.include_router(router)
+bot = Bot(token=os.getenv("BOT_TOKEN"))
+dp = Dispatcher(bot, storage=MemoryStorage())
 
 # --- Состояния анкеты ---
 class ProfileForm(StatesGroup):
     name = State()
     goals = State()
 
-# --- Хранилище временное (потом SQLite) ---
+# --- Временное хранилище пользователей ---
 users = {}
 
 # --- Главное меню ---
 def main_kb():
-    kb = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🔍 Найти собеседника")],
-            [KeyboardButton(text="📝 Моя анкета")],
-            [KeyboardButton(text="⚙️ Настройки"), KeyboardButton(text="💖 Помочь")],
-        ], resize_keyboard=True
-    )
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(KeyboardButton("🔍 Найти собеседника"))
+    kb.add(KeyboardButton("📝 Моя анкета"))
+    kb.add(KeyboardButton("⚙️ Настройки"), KeyboardButton("💖 Помочь"))
     return kb
 
-@router.message(F.text.in_(["/start", "/menu"]))
-async def cmd_start(m: Message):
-    await m.answer("Добро пожаловать! ☀️\n\nЗдесь можно познакомиться по общим интересам — честно, без оценок.", reply_markup=main_kb())
+@dp.message_handler(commands=['start', 'menu'])
+async def cmd_start(message: types.Message):
+    await message.answer("Добро пожаловать! ☀️\n\nЗдесь можно познакомиться по интересам — честно, без оценок.", reply_markup=main_kb())
 
-@router.message(F.text == "📝 Моя анкета")
-async def start_form(m: Message, state: FSMContext):
-    await m.answer("Как тебя зовут?")
-    await state.set_state(ProfileForm.name)
+@dp.message_handler(lambda message: message.text == "📝 Моя анкета")
+async def start_form(message: types.Message):
+    await ProfileForm.name.set()
+    await message.answer("Как тебя зовут?")
 
-@router.message(ProfileForm.name)
-async def process_name(m: Message, state: FSMContext):
-    await state.update_data(name=m.text, goals=[])
-    await m.answer("Выбери до 3 целей общения:", reply_markup=goals_kb())
-    await state.set_state(ProfileForm.goals)
+@dp.message_handler(state=ProfileForm.name)
+async def process_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text, goals=[])
+    await ProfileForm.goals.set()
+    await message.answer("Выбери до 3 целей общения:", reply_markup=goals_kb())
 
-# --- Выбор целей ---
 goal_options = ["💬 Поболтать", "🚶 Прогулка", "🛍️ Пошопиться", "🎮 Игры", "📚 Почитать вместе"]
 
 def goals_kb(selected=None):
-    kb = ReplyKeyboardBuilder()
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     selected = selected or []
     for goal in goal_options:
-        prefix = "✅ " if goal in selected else "" 
-        kb.button(text=f"{prefix}{goal}")
-    kb.button(text="✅ Готово")
-    kb.adjust(2)
-    return kb.as_markup(resize_keyboard=True)
+        prefix = "✅ " if goal in selected else ""
+        kb.add(KeyboardButton(f"{prefix}{goal}"))
+    kb.add(KeyboardButton("✅ Готово"))
+    return kb
 
-@router.message(ProfileForm.goals)
-async def process_goals(m: Message, state: FSMContext):
-    data = await state.get_data()
-    text = m.text.replace("✅ ", "")
-    goals = data.get("goals", [])
+@dp.message_handler(state=ProfileForm.goals)
+async def process_goals(message: types.Message, state: FSMContext):
+    user_data = await state.get_data()
+    goals = user_data.get("goals", [])
+    text = message.text.replace("✅ ", "")
     if text == "✅ Готово":
-        name = data.get("name")
-        users[m.from_user.id] = {"name": name, "goals": goals}
-        await state.clear()
-        await m.answer(f"Анкета сохранена ✅\nИмя: {name}\nЦели: {', '.join(goals)}", reply_markup=main_kb())
+        name = user_data.get("name")
+        users[message.from_user.id] = {"name": name, "goals": goals}
+        await state.finish()
+        await message.answer(f"Анкета сохранена ✅\nИмя: {name}\nЦели: {', '.join(goals)}", reply_markup=main_kb())
     elif text in goal_options:
         if text in goals:
             goals.remove(text)
         elif len(goals) < 3:
             goals.append(text)
         else:
-            await m.answer("Можно выбрать не более 3 целей")
+            await message.answer("Можно выбрать не более 3 целей")
         await state.update_data(goals=goals)
-        await m.answer("Выбери цели:", reply_markup=goals_kb(goals))
+        await message.answer("Выбери цели:", reply_markup=goals_kb(goals))
+
+if __name__ == "__main__":
+    executor.start_polling(dp, skip_updates=True)
