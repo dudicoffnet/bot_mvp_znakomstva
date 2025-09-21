@@ -1,92 +1,71 @@
 
+import asyncio
 import os
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram import Bot, Dispatcher, types
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiogram.enums import ParseMode
 from dotenv import load_dotenv
-from приложение.database import init_db, save_user, find_matches, get_all_users
 
 load_dotenv()
-init_db()
 
-bot = Bot(token=os.getenv("BOT_TOKEN"))
-dp = Dispatcher(bot, storage=MemoryStorage())
+TOKEN = os.getenv("BOT_TOKEN")
+bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
+dp = Dispatcher(storage=MemoryStorage())
 
-class ProfileForm(StatesGroup):
+class Form(StatesGroup):
     name = State()
     goals = State()
 
-def main_kb():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("🔍 Найти собеседника"))
-    kb.add(KeyboardButton("📝 Моя анкета"))
-    kb.add(KeyboardButton("⚙️ Настройки"), KeyboardButton("💖 Помочь"))
-    return kb
+GOALS = ["💬 Поболтать", "🚶 Прогулка", "🛍️ Пошопиться", "🎮 Игры", "📚 Почитать вместе"]
 
-@dp.message_handler(commands=['start', 'menu'])
-async def cmd_start(message: types.Message):
-    await message.answer("Привет! Это честный бот знакомств. Выбери, что хочешь сделать:", reply_markup=main_kb())
+user_data = {}
 
-@dp.message_handler(lambda message: message.text == "📝 Моя анкета")
-async def start_form(message: types.Message):
-    await ProfileForm.name.set()
-    await message.answer("Как тебя зовут?")
+@dp.message(commands=["start"])
+async def cmd_start(message: Message, state: FSMContext):
+    await state.set_state(Form.name)
+    await message.answer("Привет! Как тебя зовут?")
 
-@dp.message_handler(state=ProfileForm.name)
-async def process_name(message: types.Message, state: FSMContext):
+@dp.message(Form.name)
+async def process_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text, goals=[])
-    await ProfileForm.goals.set()
-    await message.answer("Выбери до 3 целей общения:", reply_markup=goals_kb())
+    await state.set_state(Form.goals)
+    builder = ReplyKeyboardBuilder()
+    for goal in GOALS:
+        builder.add(KeyboardButton(text=goal))
+    builder.add(KeyboardButton(text="✅ Готово"))
+    await message.answer("Выбери до 3 целей:", reply_markup=builder.as_markup(resize_keyboard=True))
 
-goal_options = ["💬 Поболтать", "🚶 Прогулка", "🛍️ Пошопиться", "🎮 Игры", "📚 Почитать вместе"]
-
-def goals_kb(selected=None):
-    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    selected = selected or []
-    for goal in goal_options:
-        prefix = "✅ " if goal in selected else ""
-        kb.add(KeyboardButton(f"{prefix}{goal}"))
-    kb.add(KeyboardButton("✅ Готово"))
-    return kb
-
-@dp.message_handler(state=ProfileForm.goals)
-async def process_goals(message: types.Message, state: FSMContext):
-    user_data = await state.get_data()
-    goals = user_data.get("goals", [])
+@dp.message(Form.goals)
+async def process_goals(message: Message, state: FSMContext):
+    data = await state.get_data()
+    selected = data.get("goals", [])
     text = message.text.replace("✅ ", "")
     if text == "✅ Готово":
-        name = user_data.get("name")
-        save_user(message.from_user.id, name, goals)
-        await state.finish()
-        await message.answer(f"Анкета сохранена ✅\nИмя: {name}\nЦели: {', '.join(goals)}", reply_markup=main_kb())
-    elif text in goal_options:
-        if text in goals:
-            goals.remove(text)
-        elif len(goals) < 3:
-            goals.append(text)
+        name = data["name"]
+        user_data[message.from_user.id] = {"name": name, "goals": selected}
+        await state.clear()
+        await message.answer(f"Твоя анкета сохранена:\nИмя: {name}\nЦели: {', '.join(selected)}", reply_markup=ReplyKeyboardMarkup(keyboard=[], resize_keyboard=True))
+    elif text in GOALS:
+        if text in selected:
+            selected.remove(text)
+        elif len(selected) < 3:
+            selected.append(text)
         else:
             await message.answer("Можно выбрать не более 3 целей")
-        await state.update_data(goals=goals)
-        await message.answer("Выбери цели:", reply_markup=goals_kb(goals))
+        await state.update_data(goals=selected)
+        builder = ReplyKeyboardBuilder()
+        for goal in GOALS:
+            prefix = "✅ " if goal in selected else ""
+            builder.add(KeyboardButton(text=prefix + goal))
+        builder.add(KeyboardButton(text="✅ Готово"))
+        await message.answer("Обновлённый выбор:", reply_markup=builder.as_markup(resize_keyboard=True))
 
-@dp.message_handler(lambda message: message.text == "🔍 Найти собеседника")
-async def match_user(message: types.Message):
-    users = get_all_users()
-    my_data = next((u for u in users if u[0] == message.from_user.id), None)
-    if not my_data:
-        await message.answer("Сначала заполни анкету 💡")
-        return
-    _, _, my_goals_str = my_data
-    my_goals = my_goals_str.split(",")
-    matches = find_matches(my_goals)
-    matches = [m for m in matches if m[0] != message.from_user.id]
-    if matches:
-        reply = "\n".join([f"{m[1]} — {', '.join(m[2])}" for m in matches])
-        await message.answer(f"Вот кто тебе подойдёт по интересам:\n{reply}")
-    else:
-        await message.answer("Пока нет совпадений. Попробуй позже 🔄")
+async def main():
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())
