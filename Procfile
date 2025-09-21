@@ -1,1 +1,1 @@
-python приложение/main.py
+python main.py
