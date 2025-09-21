@@ -1,1 +1,1 @@
-worker: python3 приложение/main.py
+worker: python3 app/main.py
