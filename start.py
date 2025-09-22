@@ -1,4 +1,3 @@
-# Bot launcher
-
-async def main():
-    print('Bot Sichas running...')
+# start.py — точка входа для совместимости
+def main():
+    pass
