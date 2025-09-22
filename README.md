@@ -1,3 +1,9 @@
-# bot_sichas_prod_final
+# MercedesScanMinskBot — финал с авто-привязкой админа
 
-Телеграм-бот для знакомств с анкетой и меню.
+## Переменные в Railway
+- BOT_TOKEN — обязательно
+- (опц.) ADMIN_CHAT_ID — если знаешь числовой chat_id
+- (опц.) ADMIN_USERNAME — по умолчанию u_468345698
+
+## Команда запуска
+python -m приложение.main
